@@ -1,6 +1,6 @@
 package SVN::Simple::Edit;
 @ISA = qw(SVN::Delta::Editor);
-$VERSION = '0.25';
+$VERSION = '0.26';
 use strict;
 use SVN::Core '0.31';
 use SVN::Delta;
@@ -33,9 +33,10 @@ changes to a tree. A common usage is to wrap the commit editor, so
 you could make commits to a subversion repository easily.
 
 This also means you can not supply the C<$edit> object as an
-delta_editor to other API. and that's why it's called Edit instead of
-Editor. see L<SVN::Simple::Editor> for simple interface implementing a
-delta editor.
+delta_editor to other API, and that's why this module is named
+B<::Edit> instead of B<::Editor>. 
+
+See L<SVN::Simple::Editor> for simple interface implementing a delta editor.
 
 =head1 PARAMETERS
 

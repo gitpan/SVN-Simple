@@ -1,7 +1,10 @@
 #!/usr/bin/perl
 
-use Test::More qw(no_plan);
 use strict;
+use Test::More tests => 8;
+use File::Path;
+use File::Spec;
+
 BEGIN {
 require_ok 'SVN::Core';
 require_ok 'SVN::Repos';
@@ -11,12 +14,20 @@ require_ok 'SVN::Simple::Edit';
 
 local $/;
 
-my $repospath = "/tmp/svn-$$";
+my $repospath = "t/repos";
+rmtree ([$repospath]) if -d $repospath;
 
-my $repos;
+$ENV{SVNFSTYPE} ||= (($SVN::Core::VERSION =~ /^1\.0/) ? 'bdb' : 'fsfs');
 
-ok($repos = SVN::Repos::create("$repospath", undef, undef, undef, undef),
-   "create repository at $repospath");
+my $repos = SVN::Repos::create($repospath, undef, undef, undef,
+			       {'fs-type' => $ENV{SVNFSTYPE}})
+    or die "failed to create repository at $repospath";
+
+my $uri = File::Spec->rel2abs( $repospath ) ;
+$uri =~ s{^|\\}{/}g if ($^O eq 'MSWin32');
+$uri = "file://$uri";
+
+ok($repos);
 
 my $fs = $repos->fs;
 
@@ -31,7 +42,7 @@ sub new_edit {
     my $base = $fs->youngest_rev;
     $edit = SVN::Simple::Edit->
 	new(_editor => [SVN::Repos::get_commit_editor
-			($repos, "file://$repospath",
+			($repos, $uri,
 			 '/', 'root', 'FOO', \&committed)],
 	    pool => SVN::Pool->new,
 	    missing_handler => ($check ?
@@ -91,10 +102,3 @@ $edit->open_directory ('trunk/deep');
 $edit->delete_entry ('trunk/deep/more');
 
 $edit->close_edit;
-
-
-END {
-diag "cleanup";
-print `svn log -v file://$repospath`;
-`rm -rf $repospath`;
-}

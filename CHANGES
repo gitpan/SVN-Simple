@@ -1,3 +1,7 @@
+[Changes for 0.25 - Nov 10, 2004]
+
+* Tests now pass on Win32.
+
 [Changes for 0.25 - Feb 25, 2004]
 
 * Documentation
