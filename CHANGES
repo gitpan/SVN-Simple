@@ -1,4 +1,8 @@
-[Changes for 0.25 - Nov 10, 2004]
+[Changes for 0.27 - Feb 24, 2005]
+
+* Don't do version check for SVN::Core.
+
+[Changes for 0.26 - Nov 10, 2004]
 
 * Tests now pass on Win32.
 
