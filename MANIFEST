@@ -1,0 +1,6 @@
+Makefile.PL
+MANIFEST
+lib/SVN/Simple/Edit.pm
+lib/SVN/Simple/Editor.pm
+t/1edit.t
+META.yml                                Module meta-data (added by MakeMaker)
