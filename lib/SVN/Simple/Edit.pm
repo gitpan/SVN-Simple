@@ -1,6 +1,6 @@
 package SVN::Simple::Edit;
 @ISA = qw(SVN::Delta::Editor);
-$VERSION = '0.21';
+$VERSION = '0.25';
 use strict;
 use SVN::Core '0.31';
 use SVN::Delta;
@@ -11,31 +11,107 @@ SVN::Simple::Edit - A simple interface for driving svn delta editors
 
 =head1 SYNOPSIS
 
-my $edit = SVN::Simple::Edit->new
-    (_editor => SVN::Repos::get_commit_editor($repos, "file://$repospath",
-			              '/', 'root', 'FOO', \&committed));
+ my $edit = SVN::Simple::Edit->new
+    (_editor => [SVN::Repos::get_commit_editor($repos, "file://$repospath",
+			              '/', 'root', 'FOO', \&committed)],
+    );
 
-$edit->open_root(0);
-
-$edit->add_directory ('trunk');
-
-$edit->add_file ('trunk/filea');
-
-$edit->copy_directory ('branches/a, trunk, 0);
-
-$edit->modify_file ("trunk/fileb", "content", $checksum);
+ $edit->open_root($fs->youngest_rev);
+ $edit->add_directory ('trunk');
+ $edit->add_file ('trunk/filea');
+ $edit->modify_file ("trunk/fileb", "content", $checksum);
+ $edit->delete_entry ("trunk/filec");
+ $edit->close_edit ();
+ ...
+ $edit->copy_directory ('branches/a, trunk, 0);
 
 =head1 DESCRIPTION
 
 SVN::Simple::Edit wraps the subversion delta editor with a perl
 friendly interface and then you could easily drive it for describing
 changes to a tree. A common usage is to wrap the commit editor, so
-you could make committs to a subversion tree easily.
+you could make commits to a subversion repository easily.
 
 This also means you can not supply the C<$edit> object as an
 delta_editor to other API. and that's why it's called Edit instead of
 Editor. see L<SVN::Simple::Editor> for simple interface implementing a
 delta editor.
+
+=head1 PARAMETERS
+
+=head2 for constructor
+
+=over
+
+=item _editor
+
+The editor that will receive delta editor calls.
+
+=item missing_handler
+
+Called when parent directory are not opened yet, could be:
+
+=over
+
+=item \&SVN::Simple::Edit::build_missing
+
+Always build parents if you don't open them explicitly.
+
+=item \&SVN::Simple::Edit::open_missing
+
+Always open the parents if you don't create them explicitly.
+
+=item SVN::Simple::Edit::check_missing ([$root])
+
+Check if the path exists on $root. Open it if so, otherwise create it.
+
+=back
+
+=item root
+
+The default root to use by SVN::Simple::Edit::check_missing.
+
+=item base_path
+
+The base path the edit object is created to send delta editor calls.
+
+=item noclose
+
+Do not close files or directories. This might make non-sorted
+operations on directories/files work.
+
+=back
+
+=head1 METHODS
+
+Note: Don't expect all editors will work with operations not sorted in
+DFS order.
+
+=over
+
+=item open_root ($base_rev)
+
+=item add_directory ($path)
+
+=item open_directory ($path)
+
+=item copy_directory ($path, $from, $fromrev)
+
+=item add_file ($path)
+
+=item open_file ($path)
+
+=item copy_file ($path, $from, $fromrev)
+
+=item delete_entry ($path)
+
+=item change_dir_prop ($path, $propname, $propvalue)
+
+=item change_file_prop ($path, $propname, $propvalue)
+
+=item close_edit ()
+
+=back
 
 =cut
 
@@ -99,6 +175,7 @@ sub find_pbaton {
     my (undef, $dir, undef) = splitpath($path);
     $dir = canonpath ($dir);
 
+
     return $self->{BATON}{$dir} if exists $self->{BATON}{$dir};
 
     $missing_handler ||= $self->{missing_handler};
@@ -110,9 +187,31 @@ sub find_pbaton {
     return $pbaton;
 }
 
+sub close_other_baton {
+    my ($self, $path) = @_;
+    return if $self->{noclose};
+    my (undef, $dir, undef) = splitpath($path);
+    $dir = canonpath ($dir);
+
+    for (reverse sort grep { !$dir || substr ($_, 0, length ($dir)+1) eq "$dir/"}
+	 keys %{$self->{BATON}}) {
+	next unless $path;
+	my $baton = $self->{BATON}{$path};
+	if ($self->{FILES}{$path}) {
+	    $self->SUPER::close_file ($baton, undef, $self->{pool});
+	}
+	else {
+	    $self->SUPER::close_directory ($baton, $self->{pool});
+	}
+	delete $self->{FILES}{$path};
+	delete $self->{BATON}{$path};
+    }
+}
+
 sub open_directory {
     my ($self, $path, $pbaton) = @_;
     $path =~ s|^/||;
+    $self->close_other_baton ($path);
     $pbaton ||= $self->find_pbaton ($path);
     my $base_revision = $self->_rev_from_root ($path) if $self->{root};
     $base_revision ||= $self->{BASE};
@@ -124,6 +223,7 @@ sub open_directory {
 sub add_directory {
     my ($self, $path, $pbaton) = @_;
     $path =~ s|^/||;
+    $self->close_other_baton ($path);
     $pbaton ||= $self->find_pbaton ($path);
     $self->{BATON}{$path} = $self->SUPER::add_directory ($path, $pbaton, undef,
 							 -1, $self->{pool});
@@ -141,9 +241,11 @@ sub copy_directory {
 sub open_file {
     my ($self, $path, $pbaton) = @_;
     $path =~ s|^/||;
+    $self->close_other_baton ($path);
     $pbaton ||= $self->find_pbaton ($path);
     my $base_revision = $self->_rev_from_root ($path) if $self->{root};
     $base_revision ||= $self->{BASE};
+    $self->{FILES}{$path} = 1;
     $self->{BATON}{$path} = $self->SUPER::open_file ($path, $pbaton,
 						     $base_revision,
 						     $self->{pool});
@@ -152,7 +254,9 @@ sub open_file {
 sub add_file {
     my ($self, $path, $pbaton) = @_;
     $path =~ s|^/||;
+    $self->close_other_baton ($path);
     $pbaton ||= $self->find_pbaton ($path);
+    $self->{FILES}{$path} = 1;
     $self->{BATON}{$path} = $self->SUPER::add_file ($path, $pbaton, undef, -1,
 						    $self->{pool});
 }
@@ -172,6 +276,8 @@ sub modify_file {
 	($self->{BATON}{$path} || $self->open_file ($path));
     my $ret = $self->apply_textdelta ($baton, undef, $self->{pool});
 
+    return unless $ret && $ret->[0];
+
     if (ref($content) && $content->isa ('GLOB')) {
 	my $md5 = SVN::TxDelta::send_stream ($content,
 					     @$ret,
@@ -186,9 +292,11 @@ sub modify_file {
 
 sub delete_entry {
     my ($self, $path, $pbaton) = @_;
+    my $base_revision;
     $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path, \&open_missing);
-    my $base_revision = $self->_rev_from_root ($path) if $self->{root};
+
+    $base_revision = $self->_rev_from_root ($path) if $self->{root};
     $base_revision ||= $self->{BASE};
     $self->SUPER::delete_entry ($path, $base_revision, $pbaton, $self->{pool});
 }
@@ -223,15 +331,9 @@ sub close_directory {
     $self->SUPER::close_directory ($baton, $self->{pool});
 }
 
-=for todo
-
-close all directories and files gracefully upon close_edit and abort_edit
-
-=cut
-
 sub close_edit {
     my ($self) = @_;
-
+    $self->close_other_baton ('');
     $self->SUPER::close_edit ($self->{pool});
 }
 
@@ -247,7 +349,7 @@ Chia-liang Kao E<lt>clkao@clkao.orgE<gt>
 
 =head1 COPYRIGHT
 
-Copyright 2003 by Chia-liang Kao E<lt>clkao@clkao.orgE<gt>.
+Copyright 2003-2004 by Chia-liang Kao E<lt>clkao@clkao.orgE<gt>.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

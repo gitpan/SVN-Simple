@@ -7,6 +7,9 @@ SVN::Simple::Editor - A simple interface for writing a delta editor
 
 =head1 SYNOPSIS
 
+my $editor = SVN::Simple::Editor->new 
+             ( );
+
 package MyEditor;
 
 package main;
@@ -17,7 +20,7 @@ SVN::Repos::dir_delta($base_root, '', undef, $root, '',
 
 =head1 DESCRIPTION
 
-
+not currently implement.ed
 
 =cut
 

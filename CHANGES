@@ -1,3 +1,9 @@
+[Changes for 0.25 - Feb 25, 2004]
+
+* Documentation
+* Fix - delete_entry is using bad Perl construct.
+* New - automatically close files and directories.
+
 [Changes for 0.21 - Nov 24, 2003]
 
 * Fix - add a base_path parameter for check_missing to use.
