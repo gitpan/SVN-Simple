@@ -1,8 +1,8 @@
 package SVN::Simple::Edit;
 @ISA = qw(SVN::Delta::Editor);
-$VERSION = '0.1';
+$VERSION = '0.20';
 use strict;
-use SVN::Core '0.28';
+use SVN::Core '0.31';
 use SVN::Delta;
 
 =head1 NAME
@@ -54,6 +54,15 @@ sub open_missing {
     $self->open_directory ($path);
 }
 
+sub check_missing {
+    my ($root) = @_;
+    return sub {
+	my ($self, $path) = @_;
+	$root->check_path ($path) == $SVN::Node::none ?
+	    $self->add_directory ($path) : $self->open_directory($path);
+    }
+}
+
 sub new {
     my $class = shift;
     my $self = $class->SUPER::new(@_);
@@ -75,7 +84,7 @@ sub open_root {
 }
 
 sub find_pbaton {
-    my ($self, $path) = @_;
+    my ($self, $path, $missing_handler) = @_;
     use Carp;
     return $self->{BATON}{''} unless $path;
     my (undef, $dir, undef) = splitpath($path);
@@ -83,16 +92,18 @@ sub find_pbaton {
 
     return $self->{BATON}{$dir} if exists $self->{BATON}{$dir};
 
+    $missing_handler ||= $self->{missing_handler};
     die "unable to get baton for directory $dir"
-	unless $self->{missing_handler};
+	unless $missing_handler;
 
-    my $pbaton = &{$self->{missing_handler}} ($self, $dir);
+    my $pbaton = &$missing_handler ($self, $dir);
 
     return $pbaton;
 }
 
 sub open_directory {
     my ($self, $path, $pbaton) = @_;
+    $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path);
     $self->{BATON}{$path} = $self->SUPER::open_directory ($path, $pbaton,
 							  $self->{BASE},
@@ -101,6 +112,7 @@ sub open_directory {
 
 sub add_directory {
     my ($self, $path, $pbaton) = @_;
+    $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path);
     $self->{BATON}{$path} = $self->SUPER::add_directory ($path, $pbaton, undef,
 							 -1, $self->{pool});
@@ -108,6 +120,7 @@ sub add_directory {
 
 sub copy_directory {
     my ($self, $path, $from, $fromrev, $pbaton) = @_;
+    $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path);
     $self->{BATON}{$path} = $self->SUPER::add_directory ($path, $pbaton, $from,
 							 $fromrev,
@@ -116,6 +129,7 @@ sub copy_directory {
 
 sub open_file {
     my ($self, $path, $pbaton) = @_;
+    $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path);
     $self->{BATON}{$path} = $self->SUPER::open_file ($path, $pbaton,
 						     $self->{BASE},
@@ -124,6 +138,7 @@ sub open_file {
 
 sub add_file {
     my ($self, $path, $pbaton) = @_;
+    $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path);
     $self->{BATON}{$path} = $self->SUPER::add_file ($path, $pbaton, undef, -1,
 						    $self->{pool});
@@ -131,19 +146,25 @@ sub add_file {
 
 sub copy_file {
     my ($self, $path, $from, $fromrev, $pbaton) = @_;
+    $path =~ s|^/||;
+    $pbaton ||= $self->find_pbaton ($path);
     $self->{BATON}{$path} = $self->SUPER::add_file ($path, $pbaton, $from,
 						    $fromrev, $self->{pool});
 }
 
 sub modify_file {
-    my ($self, $path, $content, $basechecksum) = @_;
+    my ($self, $path, $content, $targetchecksum) = @_;
+    $path =~ s|^/|| unless ref($path);
     my $baton = ref($path) ? $path :
 	($self->{BATON}{$path} || $self->open_file ($path));
-    my $ret = $self->apply_textdelta ($baton, $basechecksum, $self->{pool});
+    my $ret = $self->apply_textdelta ($baton, undef, $self->{pool});
 
     if (ref($content) && $content->isa ('GLOB')) {
-	SVN::_Delta::svn_txdelta_send_stream ($content,
-					      @$ret, undef, $self->{pool});
+	my $md5 = SVN::_Delta::svn_txdelta_send_stream ($content,
+							@$ret,
+							$self->{pool});
+	die "checksum mistach" if $targetchecksum
+	    && $targetchecksum ne $md5;
     }
     else {
 	SVN::_Delta::svn_txdelta_send_string ($content, @$ret, $self->{pool});
@@ -152,12 +173,14 @@ sub modify_file {
 
 sub delete_entry {
     my ($self, $path, $pbaton) = @_;
-    $pbaton ||= $self->find_pbaton ($path);
+    $path =~ s|^/||;
+    $pbaton ||= $self->find_pbaton ($path, \&open_missing);
     $self->SUPER::delete_entry ($path, $self->{BASE}, $pbaton, $self->{pool});
 }
 
 sub change_file_prop {
     my ($self, $path, $key, $value) = @_;
+    $path =~ s|^/|| unless ref($path);
     my $baton = ref($path) ? $path :
 	($self->{BATON}{$path} || $self->open_file ($path));
     $self->SUPER::change_file_prop ($baton, $key, $value, $self->{pool});
@@ -165,25 +188,27 @@ sub change_file_prop {
 
 sub change_dir_prop {
     my ($self, $path, $key, $value) = @_;
+    $path =~ s|^/|| unless ref($path);
     my $baton = ref($path) ? $path :
 	($self->{BATON}{$path} || $self->open_directory ($path));
-    my $baton = ref($path) ? $path : $self->{BATON}{$path};
     $self->SUPER::change_dir_prop ($baton, $key, $value, $self->{pool});
 }
 
 sub close_file {
     my ($self, $path, $checksum) = @_;
-    my $baton = ref($path) ? $path : $self->{BATON}{$path};
+    my $baton = $self->{BATON}{$path} or die "not opened";
+    delete $self->{BATON}{$path};
     $self->SUPER::close_file ($baton, $checksum, $self->{pool});
 }
 
 sub close_directory {
     my ($self, $path) = @_;
-    my $baton = ref($path) ? $path : $self->{BATON}{$path};
+    my $baton = $self->{BATON}{$path} or die "not opened";
+    delete $self->{BATON}{$path};
     $self->SUPER::close_directory ($baton, $self->{pool});
 }
 
-=todo
+=for todo
 
 close all directories and files gracefully upon close_edit and abort_edit
 

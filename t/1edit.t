@@ -3,10 +3,10 @@
 use Test::More qw(no_plan);
 use strict;
 BEGIN {
-use_ok 'SVN::Core';
-use_ok 'SVN::Repos';
-use_ok 'SVN::Fs';
-use_ok 'SVN::Simple::Edit';
+require_ok 'SVN::Core';
+require_ok 'SVN::Repos';
+require_ok 'SVN::Fs';
+require_ok 'SVN::Simple::Edit';
 }
 
 local $/;
@@ -24,23 +24,28 @@ sub committed {
     diag "committed ".join(',',@_);
 }
 
-
 my $edit;
+
 sub new_edit {
-  $edit = SVN::Simple::Edit->
-    new(_editor => [SVN::Repos::get_commit_editor
-		    ($repos, "file://$repospath",
-		     '/', 'root', 'FOO', \&committed)],
-	pool => SVN::Pool->new,
-	missing_handler => sub {
-	    my ($edit, $path) = @_;
-	    diag "build missing directory for $path";
-	    $edit->add_directory ($path);
-	});
+    my ($check) = @_;
+    my $base = $fs->youngest_rev;
+    $edit = SVN::Simple::Edit->
+	new(_editor => [SVN::Repos::get_commit_editor
+			($repos, "file://$repospath",
+			 '/', 'root', 'FOO', \&committed)],
+	    pool => SVN::Pool->new,
+	    missing_handler => ($check ?
+	    (&SVN::Simple::Edit::check_missing ($fs->revision_root ($base))) :
+	    sub {
+		my ($edit, $path) = @_;
+		diag "build missing directory for $path";
+		$edit->add_directory ($path);
+	    }));
+    $edit->open_root ($base);
+    return $edit;
 }
 
 $edit = new_edit;
-$edit->open_root(0);
 
 $edit->add_file ('trunk/deep/more/gfilea');
 $edit->add_file ('trunk/deep2/more/gfileb');
@@ -53,7 +58,7 @@ $edit->modify_file ('filea', $text);
 
 $edit->add_file ('fileb');
 open my $fh, $0;
-$edit->modify_file ('fileb', <$fh>);
+$edit->modify_file ('fileb', $fh);
 
 $edit->close_edit();
 
@@ -66,11 +71,27 @@ seek $fh, 0, 0;
 is(<$fileb>, <$fh>, "content from stream verified");
 
 $edit = new_edit;
-$edit->open_root (1);
 
 $edit->modify_file($edit->open_file ('fileb'), 'foo');
 
 $edit->close_edit;
+
+$edit = new_edit(1);
+
+#$edit->open_directory ('trunk');
+#$edit->open_directory ('trunk/deep');
+$edit->delete_entry ('trunk/deep/more');
+
+$edit->close_edit;
+
+$edit = new_edit;
+
+$edit->open_directory ('trunk');
+$edit->open_directory ('trunk/deep');
+$edit->delete_entry ('trunk/deep/more');
+
+$edit->close_edit;
+
 
 END {
 diag "cleanup";
