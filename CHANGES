@@ -1,0 +1,14 @@
+[Changes for 0.21 - Nov 24, 2003]
+
+* Fix - add a base_path parameter for check_missing to use.
+* New - allow editing based on a given transaction root.
+
+[Changes for 0.20 - Oct 6, 2003]
+
+* Fix - unbreak absolute path used in edit functions.
+* Fix - make modify_file verify checksum correctly when given.
+* require subversion 0.31 now.
+
+[Changes for 0.1 - Aug 25, 2003]
+
+Initial release.

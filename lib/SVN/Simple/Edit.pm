@@ -1,6 +1,6 @@
 package SVN::Simple::Edit;
 @ISA = qw(SVN::Delta::Editor);
-$VERSION = '0.20';
+$VERSION = '0.21';
 use strict;
 use SVN::Core '0.31';
 use SVN::Delta;
@@ -58,7 +58,8 @@ sub check_missing {
     my ($root) = @_;
     return sub {
 	my ($self, $path) = @_;
-	$root->check_path ($path) == $SVN::Node::none ?
+	$root ||= $self->{root};
+	$root->check_path (($self->{base_path} || '')."/$path") == $SVN::Node::none ?
 	    $self->add_directory ($path) : $self->open_directory($path);
     }
 }
@@ -76,8 +77,16 @@ sub set_target_revision {
     $self->SUPER::set_target_revision ($target_revision);
 }
 
+sub _rev_from_root {
+    my ($self, $path) = @_;
+    $path = "/$path" if $path;
+    $path ||= '';
+    return $self->{root}->node_created_rev($self->{base_path}.$path);
+}
+
 sub open_root {
     my ($self, $base_revision) = @_;
+    $base_revision ||= $self->_rev_from_root ()	if $self->{root};
     $self->{BASE} = $base_revision;
     $self->{BATON}{''} = $self->SUPER::open_root
 	($base_revision, ${$self->{pool}});
@@ -105,8 +114,10 @@ sub open_directory {
     my ($self, $path, $pbaton) = @_;
     $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path);
+    my $base_revision = $self->_rev_from_root ($path) if $self->{root};
+    $base_revision ||= $self->{BASE};
     $self->{BATON}{$path} = $self->SUPER::open_directory ($path, $pbaton,
-							  $self->{BASE},
+							  $base_revision,
 							  $self->{pool});
 }
 
@@ -131,8 +142,10 @@ sub open_file {
     my ($self, $path, $pbaton) = @_;
     $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path);
+    my $base_revision = $self->_rev_from_root ($path) if $self->{root};
+    $base_revision ||= $self->{BASE};
     $self->{BATON}{$path} = $self->SUPER::open_file ($path, $pbaton,
-						     $self->{BASE},
+						     $base_revision,
 						     $self->{pool});
 }
 
@@ -160,10 +173,10 @@ sub modify_file {
     my $ret = $self->apply_textdelta ($baton, undef, $self->{pool});
 
     if (ref($content) && $content->isa ('GLOB')) {
-	my $md5 = SVN::_Delta::svn_txdelta_send_stream ($content,
-							@$ret,
-							$self->{pool});
-	die "checksum mistach" if $targetchecksum
+	my $md5 = SVN::TxDelta::send_stream ($content,
+					     @$ret,
+					     $self->{pool});
+	die "checksum mistach ($md5) vs ($targetchecksum)" if $targetchecksum
 	    && $targetchecksum ne $md5;
     }
     else {
@@ -175,7 +188,9 @@ sub delete_entry {
     my ($self, $path, $pbaton) = @_;
     $path =~ s|^/||;
     $pbaton ||= $self->find_pbaton ($path, \&open_missing);
-    $self->SUPER::delete_entry ($path, $self->{BASE}, $pbaton, $self->{pool});
+    my $base_revision = $self->_rev_from_root ($path) if $self->{root};
+    $base_revision ||= $self->{BASE};
+    $self->SUPER::delete_entry ($path, $base_revision, $pbaton, $self->{pool});
 }
 
 sub change_file_prop {

@@ -57,7 +57,7 @@ $edit->modify_file ('filea', $text);
 
 
 $edit->add_file ('fileb');
-open my $fh, $0;
+open my ($fh), $0;
 $edit->modify_file ('fileb', $fh);
 
 $edit->close_edit();

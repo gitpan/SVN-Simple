@@ -1,6 +1,8 @@
 #!/usr/bin/perl
 use ExtUtils::MakeMaker;
 
+my $required_svn = '0.31.0';
+
 WriteMakefile(
     AUTHOR              => 'Chia-liang Kao (clkao@clkao.org)',
     ABSTRACT            => 'Simple interface to SVN::Delta::Editor',
@@ -8,7 +10,7 @@ WriteMakefile(
     VERSION_FROM        => 'lib/SVN/Simple/Edit.pm',
     DISTNAME            => 'SVN-Simple',
     PREREQ_PM           => {
-        'SVN::Core'   => '0.31',
+        'SVN::Core'   => $required_svn,
     },
     dist                => {
         COMPRESS        => 'gzip -9',
@@ -16,3 +18,5 @@ WriteMakefile(
     },
 );
 
+die "SVN::Core $required_svn must be manually installed"
+    unless eval {require SVN::Core} && $SVN::Core::VERSION >= $required_svn;

@@ -1,4 +1,6 @@
 Makefile.PL
+README
+CHANGES
 MANIFEST
 lib/SVN/Simple/Edit.pm
 lib/SVN/Simple/Editor.pm
