@@ -99,6 +99,5 @@ $edit = new_edit;
 
 $edit->open_directory ('trunk');
 $edit->open_directory ('trunk/deep');
-$edit->delete_entry ('trunk/deep/more');
 
 $edit->close_edit;

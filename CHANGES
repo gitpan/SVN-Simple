@@ -1,3 +1,7 @@
+[Changes for 0.29 - Dec 8, 2009]
+
+* Make tests pass for Subversion 1.6.x.
+
 [Changes for 0.27 - Feb 24, 2005]
 
 * Don't do version check for SVN::Core.

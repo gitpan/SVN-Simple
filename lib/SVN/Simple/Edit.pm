@@ -1,6 +1,6 @@
 package SVN::Simple::Edit;
 @ISA = qw(SVN::Delta::Editor);
-$VERSION = '0.27';
+$VERSION = '0.28';
 use strict;
 use SVN::Core;
 use SVN::Delta;
